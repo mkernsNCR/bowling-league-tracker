@@ -48,39 +48,44 @@ A comprehensive bowling league management system with handicap support, AI-power
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd bowling-league-tracker
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Set up environment variables**
-   
+
    Create a `.env` file in the root directory:
+
    ```env
    # Database
    DATABASE_URL=postgresql://username:password@localhost:5432/bowling_league
-   
+
    # OpenAI (for OCR functionality)
    OPENAI_API_KEY=your_openai_api_key_here
-   
+
    # Server
    PORT=5000
    NODE_ENV=development
    ```
 
 4. **Set up the database**
-   
+
    Make sure PostgreSQL is running and create the database:
+
    ```sql
    CREATE DATABASE bowling_league;
    ```
-   
+
    Push the database schema:
+
    ```bash
    npm run db:push
    ```
@@ -231,25 +236,16 @@ MIT License - see LICENSE file for details
 ### Common Issues
 
 #### Database Connection Error
-##### Symptoms
-- Error connecting to PostgreSQL database
-##### Solutions
 - Verify PostgreSQL is running
 - Check DATABASE_URL in `.env` file
 - Ensure database exists
 
 #### OCR Not Working
-##### Symptoms
-- Error processing images with OpenAI OCR
-##### Solutions
 - Verify OpenAI API key is valid
 - Check API quota and usage
 - Ensure image format is supported
 
 #### Build Errors
-##### Symptoms
-- Error building the application
-##### Solutions
 - Run `npm install` to update dependencies
 - Check Node.js version (18+ required)
 - Clear cache: `rm -rf node_modules package-lock.json && npm install`
