@@ -14,6 +14,7 @@ A comprehensive bowling league management system with handicap support, AI-power
 ## 🏗️ Application Stack
 
 ### Frontend
+
 - **React 18** - Modern UI framework
 - **TypeScript** - Type-safe development
 - **Vite** - Fast development server and build tool
@@ -24,6 +25,7 @@ A comprehensive bowling league management system with handicap support, AI-power
 - **React Hook Form** - Form handling with validation
 
 ### Backend
+
 - **Node.js** - JavaScript runtime
 - **Express** - Web framework
 - **TypeScript** - Type-safe backend development
@@ -34,6 +36,7 @@ A comprehensive bowling league management system with handicap support, AI-power
 - **WebSocket** - Real-time communication
 
 ### Development Tools
+
 - **PostCSS** - CSS processing
 - **tsx** - TypeScript execution
 
@@ -146,7 +149,7 @@ Each league supports:
 - **Team Size**: 1-10 bowlers per team
 - **Games Per Session**: 1-5 games
 - **Season Length**: 1-52 weeks
-- **Handicap System**: 
+- **Handicap System**:
   - Basis: 180-250 pins
   - Percentage: 0-100%
   - Maximum handicap: 0-100 pins
@@ -154,10 +157,12 @@ Each league supports:
 ### Point Systems
 
 #### Simple System
+
 - Points awarded for overall wins/ties/losses
 - Configurable points for each outcome
 
 #### Matchup System
+
 - **Individual Game Points**: Bowler vs opponent each game
 - **Team Game Points**: Team totals for each game
 - **Team Series Points**: Overall series totals
@@ -236,16 +241,19 @@ MIT License - see LICENSE file for details
 ### Common Issues
 
 #### Database Connection Error
+
 - Verify PostgreSQL is running
 - Check DATABASE_URL in `.env` file
 - Ensure database exists
 
 #### OCR Not Working
+
 - Verify OpenAI API key is valid
 - Check API quota and usage
 - Ensure image format is supported
 
 #### Build Errors
+
 - Run `npm install` to update dependencies
 - Check Node.js version (18+ required)
 - Clear cache: `rm -rf node_modules package-lock.json && npm install`
