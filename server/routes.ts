@@ -1,32 +1,49 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage } from "../server/storage";
+import { isAuthenticated } from "./auth";
+import type { User } from "../db/schema";
+import "./auth"; // Load global type augmentations
 import { 
   insertLeagueSchema, 
+  updateLeagueSchema,
   insertTeamSchema, 
+  updateTeamSchema,
   insertBowlerSchema, 
+  updateBowlerSchema,
   insertGameSchema,
-  insertScoreSchema 
+  updateGameSchema,
+  insertScoreSchema,
+  updateScoreSchema
 } from "@shared/schema";
 import { z } from "zod";
 import { extractRosterFromImage, extractScoresFromImage } from "./ocr";
+import rateLimit from "express-rate-limit";
+
+// Rate limiter for OCR endpoints (protects OpenAI credits)
+const ocrRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: parseInt(process.env.RATE_LIMIT_OCR || "10"), // 10 requests per minute
+  message: { error: "Too many requests, try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
-  // Dashboard data
-  app.get("/api/dashboard", async (req, res) => {
+  // Dashboard data - protected
+  app.get("/api/dashboard", isAuthenticated, async (req, res) => {
     try {
       const leagues = await storage.getLeagues();
       const teams = await storage.getTeams();
       const bowlers = await storage.getBowlers();
       
-      const weeksCompleted: Record<string, number> = {};
-      for (const league of leagues) {
-        weeksCompleted[league.id] = await storage.getWeeksCompleted(league.id);
-      }
+      // Batch fetch weeks completed for all leagues (avoids N+1)
+      const leagueIds = leagues.map(l => l.id);
+      const weeksCompleted = await storage.getWeeksCompletedForLeagues(leagueIds);
 
       res.json({ leagues, teams, bowlers, weeksCompleted });
     } catch (error) {
@@ -34,9 +51,16 @@ export async function registerRoutes(
     }
   });
 
-  // Leagues
-  app.get("/api/leagues", async (req, res) => {
+  // Leagues - protected for mutations
+  app.get("/api/leagues", isAuthenticated, async (req, res) => {
     try {
+      // Get leagues for the authenticated user
+      const userId = req.user?.id;
+      if (userId) {
+        const leagues = await storage.getLeaguesByUser(userId);
+        return res.json(leagues);
+      }
+      // Fallback to all leagues if no user (shouldn't happen with isAuthenticated)
       const leagues = await storage.getLeagues();
       res.json(leagues);
     } catch (error) {
@@ -44,11 +68,16 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leagues/:id", async (req, res) => {
+  app.get("/api/leagues/:id", isAuthenticated, async (req, res) => {
     try {
       const league = await storage.getLeague(req.params.id);
       if (!league) {
         return res.status(404).json({ error: "League not found" });
+      }
+
+      // Check ownership
+      if (league.userId && league.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
       }
 
       const teams = await storage.getTeams(league.id);
@@ -70,7 +99,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leagues/:id/info", async (req, res) => {
+  app.get("/api/leagues/:id/info", isAuthenticated, async (req, res) => {
     try {
       const league = await storage.getLeague(req.params.id);
       if (!league) {
@@ -82,21 +111,17 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leagues/:id/teams", async (req, res) => {
+  app.get("/api/leagues/:id/teams", isAuthenticated, async (req, res) => {
     try {
       const league = await storage.getLeague(req.params.id);
       if (!league) {
         return res.status(404).json({ error: "League not found" });
       }
 
-      const teams = await storage.getTeams(league.id);
-      const teamsWithStats = [];
-      for (const team of teams) {
-        const stats = await storage.getTeamWithStats(team.id, league);
-        if (stats) teamsWithStats.push(stats);
-      }
+      // Use batch query to get all teams with stats at once (avoids N+1)
+      const teamsWithStats = await storage.getTeamsWithStatsForLeague(league.id);
 
-      // Sort by points
+      // Sort by points (already sorted in the method, but ensuring)
       teamsWithStats.sort((a, b) => b.totalPoints - a.totalPoints);
 
       res.json({ league, teams: teamsWithStats });
@@ -105,7 +130,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leagues/:id/standings", async (req, res) => {
+  app.get("/api/leagues/:id/standings", isAuthenticated, async (req, res) => {
     try {
       const league = await storage.getLeague(req.params.id);
       if (!league) {
@@ -121,31 +146,31 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leagues/:id/scores", async (req, res) => {
+  app.get("/api/leagues/:id/scores", isAuthenticated, async (req, res) => {
     try {
       const league = await storage.getLeague(req.params.id);
       if (!league) {
         return res.status(404).json({ error: "League not found" });
       }
 
-      const teams = await storage.getTeams(league.id);
-      const bowlers = await storage.getBowlers(league.id);
-      const games = await storage.getGames(league.id);
-      
-      const allScores = [];
-      for (const game of games) {
-        const gameScores = await storage.getScores(game.id);
-        allScores.push(...gameScores);
-      }
+      const [teams, bowlers, games, allScores, weeksCompleted] = await Promise.all([
+        storage.getTeams(league.id),
+        storage.getBowlers(league.id),
+        storage.getGames(league.id),
+        storage.getScores(), // Fetch all scores, filter in memory
+        storage.getWeeksCompleted(league.id),
+      ]);
 
-      const weeksCompleted = await storage.getWeeksCompleted(league.id);
+      // Filter scores to only include games from this league
+      const gameIds = new Set(games.map(g => g.id));
+      const leagueScores = allScores.filter(s => gameIds.has(s.gameId));
 
       res.json({
         league,
         teams,
         bowlers,
         games,
-        scores: allScores,
+        scores: leagueScores,
         currentWeek: weeksCompleted + 1,
       });
     } catch (error) {
@@ -153,44 +178,60 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leagues", async (req, res) => {
+  app.post("/api/leagues", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertLeagueSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.errors });
       }
-      const league = await storage.createLeague(parsed.data);
+      // Add userId from authenticated user
+      const leagueData = { ...parsed.data, userId: req.user?.id };
+      const league = await storage.createLeague(leagueData);
       res.status(201).json(league);
     } catch (error) {
       res.status(500).json({ error: "Failed to create league" });
     }
   });
 
-  app.patch("/api/leagues/:id", async (req, res) => {
+  app.patch("/api/leagues/:id", isAuthenticated, async (req, res) => {
     try {
-      const league = await storage.updateLeague(req.params.id, req.body);
-      if (!league) {
+      const parsed = updateLeagueSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const existingLeague = await storage.getLeague(req.params.id);
+      if (!existingLeague) {
         return res.status(404).json({ error: "League not found" });
       }
+      // Check ownership
+      if (existingLeague.userId && existingLeague.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const league = await storage.updateLeague(req.params.id, parsed.data);
       res.json(league);
     } catch (error) {
       res.status(500).json({ error: "Failed to update league" });
     }
   });
 
-  app.delete("/api/leagues/:id", async (req, res) => {
+  app.delete("/api/leagues/:id", isAuthenticated, async (req, res) => {
     try {
-      const deleted = await storage.deleteLeague(req.params.id);
-      if (!deleted) {
+      const existingLeague = await storage.getLeague(req.params.id);
+      if (!existingLeague) {
         return res.status(404).json({ error: "League not found" });
       }
+      // Check ownership
+      if (existingLeague.userId && existingLeague.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const deleted = await storage.deleteLeague(req.params.id);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete league" });
     }
   });
 
-  app.post("/api/leagues/:id/calculate-finals", async (req, res) => {
+  app.post("/api/leagues/:id/calculate-finals", isAuthenticated, async (req, res) => {
     try {
       const league = await storage.getLeague(req.params.id);
       if (!league) {
@@ -209,8 +250,8 @@ export async function registerRoutes(
     }
   });
 
-  // Teams
-  app.post("/api/teams", async (req, res) => {
+  // Teams - all protected
+  app.post("/api/teams", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertTeamSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -223,9 +264,13 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/teams/:id", async (req, res) => {
+  app.patch("/api/teams/:id", isAuthenticated, async (req, res) => {
     try {
-      const team = await storage.updateTeam(req.params.id, req.body);
+      const parsed = updateTeamSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const team = await storage.updateTeam(req.params.id, parsed.data);
       if (!team) {
         return res.status(404).json({ error: "Team not found" });
       }
@@ -235,7 +280,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/teams/:id", async (req, res) => {
+  app.delete("/api/teams/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteTeam(req.params.id);
       if (!deleted) {
@@ -247,8 +292,8 @@ export async function registerRoutes(
     }
   });
 
-  // Bowlers
-  app.post("/api/bowlers", async (req, res) => {
+  // Bowlers - all protected
+  app.post("/api/bowlers", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertBowlerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -261,9 +306,13 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/bowlers/:id", async (req, res) => {
+  app.patch("/api/bowlers/:id", isAuthenticated, async (req, res) => {
     try {
-      const bowler = await storage.updateBowler(req.params.id, req.body);
+      const parsed = updateBowlerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const bowler = await storage.updateBowler(req.params.id, parsed.data);
       if (!bowler) {
         return res.status(404).json({ error: "Bowler not found" });
       }
@@ -273,7 +322,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/bowlers/:id", async (req, res) => {
+  app.delete("/api/bowlers/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteBowler(req.params.id);
       if (!deleted) {
@@ -285,8 +334,8 @@ export async function registerRoutes(
     }
   });
 
-  // Games
-  app.post("/api/games", async (req, res) => {
+  // Games - all protected
+  app.post("/api/games", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertGameSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -299,7 +348,23 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/games/:id/scores", async (req, res) => {
+  app.patch("/api/games/:id", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = updateGameSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const game = await storage.updateGame(req.params.id, parsed.data);
+      if (!game) {
+        return res.status(404).json({ error: "Game not found" });
+      }
+      res.json(game);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update game" });
+    }
+  });
+
+  app.post("/api/games/:id/scores", isAuthenticated, async (req, res) => {
     try {
       const gameId = req.params.id;
       const game = await storage.getGame(gameId);
@@ -361,7 +426,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/games/:id", async (req, res) => {
+  app.delete("/api/games/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteGame(req.params.id);
       if (!deleted) {
@@ -373,8 +438,25 @@ export async function registerRoutes(
     }
   });
 
-  // OCR Routes for photo scanning
-  app.post("/api/ocr/roster", async (req, res) => {
+  // Scores - all protected
+  app.patch("/api/scores/:id", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = updateScoreSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const score = await storage.updateScore(req.params.id, parsed.data);
+      if (!score) {
+        return res.status(404).json({ error: "Score not found" });
+      }
+      res.json(score);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update score" });
+    }
+  });
+
+  // OCR Routes for photo scanning - protected with rate limiting
+  app.post("/api/ocr/roster", isAuthenticated, ocrRateLimiter, async (req, res) => {
     try {
       const { image } = req.body;
       if (!image) {
@@ -392,7 +474,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/ocr/scores", async (req, res) => {
+  app.post("/api/ocr/scores", isAuthenticated, ocrRateLimiter, async (req, res) => {
     try {
       const { image, bowlerNames } = req.body;
       if (!image) {

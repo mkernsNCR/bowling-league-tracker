@@ -22,10 +22,13 @@ export const leagueSchema = z.object({
   pointsPerTeamSeries: z.number().min(0).default(2), // Points for team series total
   bonusPointsForSeries: z.boolean(),
   status: z.enum(["active", "completed"]),
+  userId: z.number().nullable(),
 });
 
 export const insertLeagueSchema = leagueSchema.omit({ id: true, status: true });
+export const updateLeagueSchema = insertLeagueSchema.partial();
 export type InsertLeague = z.infer<typeof insertLeagueSchema>;
+export type UpdateLeague = z.infer<typeof updateLeagueSchema>;
 export type League = z.infer<typeof leagueSchema>;
 
 export const teamSchema = z.object({
@@ -35,7 +38,9 @@ export const teamSchema = z.object({
 });
 
 export const insertTeamSchema = teamSchema.omit({ id: true });
+export const updateTeamSchema = insertTeamSchema.partial();
 export type InsertTeam = z.infer<typeof insertTeamSchema>;
+export type UpdateTeam = z.infer<typeof updateTeamSchema>;
 export type Team = z.infer<typeof teamSchema>;
 
 export const bowlerSchema = z.object({
@@ -47,7 +52,9 @@ export const bowlerSchema = z.object({
 });
 
 export const insertBowlerSchema = bowlerSchema.omit({ id: true });
+export const updateBowlerSchema = insertBowlerSchema.partial();
 export type InsertBowler = z.infer<typeof insertBowlerSchema>;
+export type UpdateBowler = z.infer<typeof updateBowlerSchema>;
 export type Bowler = z.infer<typeof bowlerSchema>;
 
 export const gameSchema = z.object({
@@ -60,7 +67,9 @@ export const gameSchema = z.object({
 });
 
 export const insertGameSchema = gameSchema.omit({ id: true, completed: true });
+export const updateGameSchema = insertGameSchema.partial();
 export type InsertGame = z.infer<typeof insertGameSchema>;
+export type UpdateGame = z.infer<typeof updateGameSchema>;
 export type Game = z.infer<typeof gameSchema>;
 
 export const scoreSchema = z.object({
@@ -73,7 +82,9 @@ export const scoreSchema = z.object({
 });
 
 export const insertScoreSchema = scoreSchema.omit({ id: true });
+export const updateScoreSchema = insertScoreSchema.partial();
 export type InsertScore = z.infer<typeof insertScoreSchema>;
+export type UpdateScore = z.infer<typeof updateScoreSchema>;
 export type Score = z.infer<typeof scoreSchema>;
 
 export interface BowlerWithStats extends Bowler {

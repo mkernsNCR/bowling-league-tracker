@@ -1,10 +1,30 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { registerAuthRoutes } from "./authRoutes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import passport from "passport";
+import session from "express-session";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Session configuration
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "bowling-league-secret-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
+  })
+);
+
+// Initialize passport
+app.use(passport.initialize());
+app.use(passport.session());
 
 declare module "http" {
   interface IncomingMessage {
@@ -61,6 +81,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Register auth routes first (no auth required)
+  await registerAuthRoutes(httpServer, app);
+  
+  // Register API routes (with auth middleware)
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

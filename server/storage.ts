@@ -1,4 +1,6 @@
 import { randomUUID } from "crypto";
+import bcrypt from "bcryptjs";
+import type { User } from "../db/schema";
 import type {
   League,
   InsertLeague,
@@ -18,6 +20,7 @@ import type {
 export interface IStorage {
   // Leagues
   getLeagues(): Promise<League[]>;
+  getLeaguesByUser(userId: number): Promise<League[]>;
   getLeague(id: string): Promise<League | undefined>;
   createLeague(league: InsertLeague): Promise<League>;
   updateLeague(id: string, updates: Partial<League>): Promise<League | undefined>;
@@ -58,6 +61,8 @@ export interface IStorage {
   getTeamStandings(leagueId: string): Promise<StandingsEntry[]>;
   getIndividualStandings(leagueId: string): Promise<BowlerWithStats[]>;
   getWeeksCompleted(leagueId: string): Promise<number>;
+  getWeeksCompletedForLeagues(leagueIds: string[]): Promise<Record<string, number>>;
+  getTeamsWithStatsForLeague(leagueId: string): Promise<TeamWithStats[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -66,10 +71,39 @@ export class MemStorage implements IStorage {
   private bowlers: Map<string, Bowler> = new Map();
   private games: Map<string, Game> = new Map();
   private scores: Map<string, Score> = new Map();
+  private users: Map<number, User> = new Map();
+  private userByUsername: Map<string, User> = new Map();
+  private nextUserId = 1;
+
+  // Users (for auth)
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return this.userByUsername.get(username);
+  }
+
+  async createUser(username: string, password: string): Promise<User> {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user: User = {
+      id: this.nextUserId++,
+      username,
+      password: hashedPassword,
+      createdAt: new Date(),
+    };
+    this.users.set(user.id, user);
+    this.userByUsername.set(username, user);
+    return user;
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    return this.users.get(id);
+  }
 
   // Leagues
   async getLeagues(): Promise<League[]> {
     return Array.from(this.leagues.values());
+  }
+
+  async getLeaguesByUser(userId: number): Promise<League[]> {
+    return Array.from(this.leagues.values()).filter(l => l.userId === userId);
   }
 
   async getLeague(id: string): Promise<League | undefined> {
@@ -544,6 +578,30 @@ export class MemStorage implements IStorage {
     const completedGames = games.filter(g => g.completed);
     if (completedGames.length === 0) return 0;
     return Math.max(...completedGames.map(g => g.week));
+  }
+
+  async getWeeksCompletedForLeagues(leagueIds: string[]): Promise<Record<string, number>> {
+    const result: Record<string, number> = {};
+    for (const id of leagueIds) {
+      result[id] = await this.getWeeksCompleted(id);
+    }
+    return result;
+  }
+
+  async getTeamsWithStatsForLeague(leagueId: string): Promise<TeamWithStats[]> {
+    const league = await this.getLeague(leagueId);
+    if (!league) return [];
+
+    const teams = await this.getTeams(leagueId);
+    const teamsWithStats: TeamWithStats[] = [];
+
+    for (const team of teams) {
+      const stats = await this.getTeamWithStats(team.id, league);
+      if (stats) teamsWithStats.push(stats);
+    }
+
+    teamsWithStats.sort((a, b) => b.totalPoints - a.totalPoints);
+    return teamsWithStats;
   }
 }
 
