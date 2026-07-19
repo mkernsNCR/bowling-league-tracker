@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment files (NEVER commit real secrets)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Testing / coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Replit
+.replit
+replit.nix
+
+# Drizzle / DB
+*.sqlite
+*.sqlite3
+*.db
+
+# Temp / cache
+.tmp/
+.cache/
+.temp/
+
+# Vite
+.vite/
+
+# Drizzle migrations cache
+drizzle/.snapshot/
+
+# OS / system
+.fuse_hidden*
+.Trash-*

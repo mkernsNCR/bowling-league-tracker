@@ -1,10 +1,17 @@
 import OpenAI from "openai";
 import { z } from "zod";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+// Lazy initialization - only create client when actually needed
+function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY environment variable is required for OCR features");
+  }
+  return new OpenAI({
+    apiKey,
+    baseURL: process.env.OPENAI_API_BASE_URL || process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  });
+}
 
 export const rosterExtractionSchema = z.object({
   bowlers: z.array(z.object({
@@ -29,7 +36,7 @@ export type RosterExtraction = z.infer<typeof rosterExtractionSchema>;
 export type ScoreExtraction = z.infer<typeof scoreExtractionSchema>;
 
 export async function extractRosterFromImage(base64Image: string): Promise<RosterExtraction> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o",
     messages: [
       {
@@ -88,7 +95,7 @@ export async function extractScoresFromImage(base64Image: string, bowlerNames?: 
     ? `Known bowlers to match: ${bowlerNames.join(", ")}. Try to match extracted names to these known bowlers.`
     : "";
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o",
     messages: [
       {
