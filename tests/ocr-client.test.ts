@@ -63,6 +63,8 @@ describe("OCR OpenAI client configuration", () => {
       .mockResolvedValueOnce({ choices: [{ message: { content: '{"scores":[]}' } }] });
 
     const { extractRosterFromImage, extractScoresFromImage } = await loadOcrModule();
+    expect(openAIMocks.constructor).not.toHaveBeenCalled();
+
     await extractRosterFromImage("roster-image");
     await extractScoresFromImage("scores-image");
 
