@@ -1,10 +1,27 @@
 import OpenAI from "openai";
 import { z } from "zod";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+let openaiClient: OpenAI | null = null;
+
+/** Returns the shared OCR client, creating it from environment configuration on first use. */
+function getOpenAI(): OpenAI {
+  if (openaiClient) {
+    return openaiClient;
+  }
+
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "AI_INTEGRATIONS_OPENAI_API_KEY or OPENAI_API_KEY environment variable is required for OCR features",
+    );
+  }
+
+  openaiClient = new OpenAI({
+    apiKey,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || process.env.OPENAI_API_BASE_URL,
+  });
+  return openaiClient;
+}
 
 export const rosterExtractionSchema = z.object({
   bowlers: z.array(z.object({
@@ -28,8 +45,9 @@ export const scoreExtractionSchema = z.object({
 export type RosterExtraction = z.infer<typeof rosterExtractionSchema>;
 export type ScoreExtraction = z.infer<typeof scoreExtractionSchema>;
 
+/** Extracts and validates bowling roster data from a base64-encoded image. */
 export async function extractRosterFromImage(base64Image: string): Promise<RosterExtraction> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o",
     messages: [
       {
@@ -83,12 +101,13 @@ Always return valid JSON.`
   });
 }
 
+/** Extracts and validates bowling scores from a base64-encoded image. */
 export async function extractScoresFromImage(base64Image: string, bowlerNames?: string[]): Promise<ScoreExtraction> {
   const bowlerContext = bowlerNames?.length 
     ? `Known bowlers to match: ${bowlerNames.join(", ")}. Try to match extracted names to these known bowlers.`
     : "";
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o",
     messages: [
       {
