@@ -11,6 +11,10 @@ import {
   updateTeamSchema,
   insertBowlerSchema, 
   updateBowlerSchema,
+  insertBallSchema,
+  updateBallSchema,
+  insertArsenalSchema,
+  updateArsenalSchema,
   insertGameSchema,
   updateGameSchema,
   insertScoreSchema,
@@ -153,12 +157,14 @@ export async function registerRoutes(
         return res.status(404).json({ error: "League not found" });
       }
 
-      const [teams, bowlers, games, allScores, weeksCompleted] = await Promise.all([
+      const [teams, bowlers, games, allScores, weeksCompleted, balls, arsenals] = await Promise.all([
         storage.getTeams(league.id),
         storage.getBowlers(league.id),
         storage.getGames(league.id),
         storage.getScores(), // Fetch all scores, filter in memory
         storage.getWeeksCompleted(league.id),
+        storage.getBalls(req.user?.id),
+        storage.getArsenals(req.user?.id),
       ]);
 
       // Filter scores to only include games from this league
@@ -171,6 +177,8 @@ export async function registerRoutes(
         bowlers,
         games,
         scores: leagueScores,
+        balls,
+        arsenals,
         currentWeek: weeksCompleted + 1,
       });
     } catch (error) {
@@ -334,12 +342,151 @@ export async function registerRoutes(
     }
   });
 
+  // Bowling ball inventory - scoped to the authenticated user
+  app.get("/api/balls", isAuthenticated, async (req, res) => {
+    try {
+      const balls = await storage.getBalls(req.user?.id);
+      res.json(balls);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch bowling balls" });
+    }
+  });
+
+  app.post("/api/balls", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = insertBallSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const ball = await storage.createBall(parsed.data, req.user!.id);
+      res.status(201).json(ball);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create bowling ball" });
+    }
+  });
+
+  app.patch("/api/balls/:id", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = updateBallSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const existingBall = await storage.getBall(req.params.id);
+      if (!existingBall) {
+        return res.status(404).json({ error: "Bowling ball not found" });
+      }
+      if (existingBall.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const ball = await storage.updateBall(req.params.id, parsed.data);
+      res.json(ball);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update bowling ball" });
+    }
+  });
+
+  app.delete("/api/balls/:id", isAuthenticated, async (req, res) => {
+    try {
+      const existingBall = await storage.getBall(req.params.id);
+      if (!existingBall) {
+        return res.status(404).json({ error: "Bowling ball not found" });
+      }
+      if (existingBall.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      await storage.deleteBall(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete bowling ball" });
+    }
+  });
+
+  // Named ball sets used to pack for a session
+  app.get("/api/arsenals", isAuthenticated, async (req, res) => {
+    try {
+      const arsenals = await storage.getArsenals(req.user?.id);
+      res.json(arsenals);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch arsenals" });
+    }
+  });
+
+  app.post("/api/arsenals", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = insertArsenalSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const ownedBallIds = new Set((await storage.getBalls(req.user!.id)).map((ball) => ball.id));
+      const hasUnownedBall = parsed.data.ballIds.some((ballId) => !ownedBallIds.has(ballId));
+      if (hasUnownedBall) {
+        return res.status(400).json({ error: "Every selected ball must be in your inventory" });
+      }
+      const arsenal = await storage.createArsenal(parsed.data, req.user!.id);
+      res.status(201).json(arsenal);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create arsenal" });
+    }
+  });
+
+  app.patch("/api/arsenals/:id", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = updateArsenalSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+      const existingArsenal = await storage.getArsenal(req.params.id);
+      if (!existingArsenal) {
+        return res.status(404).json({ error: "Arsenal not found" });
+      }
+      if (existingArsenal.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (parsed.data.ballIds) {
+        const ownedBallIds = new Set((await storage.getBalls(req.user!.id)).map((ball) => ball.id));
+        const hasUnownedBall = parsed.data.ballIds.some((ballId) => !ownedBallIds.has(ballId));
+        if (hasUnownedBall) {
+          return res.status(400).json({ error: "Every selected ball must be in your inventory" });
+        }
+      }
+      const arsenal = await storage.updateArsenal(req.params.id, parsed.data);
+      res.json(arsenal);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update arsenal" });
+    }
+  });
+
+  app.delete("/api/arsenals/:id", isAuthenticated, async (req, res) => {
+    try {
+      const existingArsenal = await storage.getArsenal(req.params.id);
+      if (!existingArsenal) {
+        return res.status(404).json({ error: "Arsenal not found" });
+      }
+      if (existingArsenal.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      await storage.deleteArsenal(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete arsenal" });
+    }
+  });
+
   // Games - all protected
   app.post("/api/games", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertGameSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.errors });
+      }
+      if (parsed.data.arsenalId) {
+        const arsenal = await storage.getArsenal(parsed.data.arsenalId);
+        if (!arsenal) {
+          return res.status(400).json({ error: "Arsenal not found" });
+        }
+        if (arsenal.userId !== req.user?.id) {
+          return res.status(403).json({ error: "Access denied" });
+        }
       }
       const game = await storage.createGame(parsed.data);
       res.status(201).json(game);
@@ -353,6 +500,15 @@ export async function registerRoutes(
       const parsed = updateGameSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.errors });
+      }
+      if (parsed.data.arsenalId) {
+        const arsenal = await storage.getArsenal(parsed.data.arsenalId);
+        if (!arsenal) {
+          return res.status(400).json({ error: "Arsenal not found" });
+        }
+        if (arsenal.userId !== req.user?.id) {
+          return res.status(403).json({ error: "Access denied" });
+        }
       }
       const game = await storage.updateGame(req.params.id, parsed.data);
       if (!game) {
@@ -379,6 +535,7 @@ export async function registerRoutes(
           teamId: z.string().min(1),
           gameNumber: z.number().min(1).max(5),
           score: z.number().min(0).max(300),
+          ballId: z.string().nullable().optional(),
         })),
       });
 
@@ -388,6 +545,14 @@ export async function registerRoutes(
       }
 
       const { scores } = parsed.data;
+
+      const gameArsenal = game.arsenalId ? await storage.getArsenal(game.arsenalId) : undefined;
+      if (game.arsenalId && !gameArsenal) {
+        return res.status(400).json({ error: "The selected arsenal no longer exists" });
+      }
+      if (gameArsenal && gameArsenal.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
 
       // Validate that all bowlers and teams exist and belong to the game
       for (const scoreData of scores) {
@@ -400,6 +565,14 @@ export async function registerRoutes(
         }
         if (bowler.teamId !== scoreData.teamId) {
           return res.status(400).json({ error: `Bowler ${bowler.name} is not on team ${scoreData.teamId}` });
+        }
+        if (scoreData.ballId) {
+          if (!gameArsenal) {
+            return res.status(400).json({ error: "Select an arsenal before recording a ball" });
+          }
+          if (!gameArsenal.ballIds.includes(scoreData.ballId)) {
+            return res.status(400).json({ error: "The selected ball is not in this game's arsenal" });
+          }
         }
       }
 
@@ -414,6 +587,7 @@ export async function registerRoutes(
           teamId: scoreData.teamId,
           gameNumber: scoreData.gameNumber,
           score: scoreData.score,
+          ballId: scoreData.ballId ?? null,
         });
       }
 

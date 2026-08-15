@@ -1,13 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { HandicapBadge, ScoreBreakdown } from "./handicap-badge";
 import { Check, Save } from "lucide-react";
-import type { Bowler, Score, League, Team } from "@shared/schema";
+import type { Ball, Bowler, Score, League, Team } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { ScoreScanner } from "./photo-scanner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface BowlerScoreEntryProps {
   bowler: Bowler;
@@ -16,6 +23,9 @@ interface BowlerScoreEntryProps {
   gamesPerSession: number;
   onScoreChange: (gameIndex: number, score: number) => void;
   league: League;
+  availableBalls?: Ball[];
+  ballIds?: (string | null)[];
+  onBallChange?: (gameIndex: number, ballId: string | null) => void;
 }
 
 function BowlerScoreEntry({ 
@@ -24,7 +34,10 @@ function BowlerScoreEntry({
   handicap, 
   gamesPerSession, 
   onScoreChange,
-  league 
+  league,
+  availableBalls,
+  ballIds,
+  onBallChange,
 }: BowlerScoreEntryProps) {
   const scratchTotal = scores.reduce((sum, s) => sum + s, 0);
   const handicapTotal = scratchTotal + (handicap * gamesPerSession);
@@ -47,7 +60,7 @@ function BowlerScoreEntry({
 
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gamesPerSession}, 1fr) auto` }}>
         {Array.from({ length: gamesPerSession }).map((_, i) => (
-          <div key={i}>
+          <div key={i} className="min-w-0">
             <label className="text-xs text-muted-foreground uppercase tracking-wide mb-1 block">
               Game {i + 1}
             </label>
@@ -70,6 +83,33 @@ function BowlerScoreEntry({
               className="font-mono text-center"
               data-testid={`input-score-${bowler.id}-game-${i}`}
             />
+            {availableBalls && (
+              <div className="mt-2">
+                <label className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1 block">
+                  Ball used
+                </label>
+                <Select
+                  value={ballIds?.[i] || "none"}
+                  onValueChange={(value) => onBallChange?.(i, value === "none" ? null : value)}
+                  disabled={availableBalls.length === 0}
+                >
+                  <SelectTrigger
+                    className="h-8 px-2 text-xs"
+                    data-testid={`select-ball-${bowler.id}-game-${i}`}
+                  >
+                    <SelectValue placeholder="No ball" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No ball recorded</SelectItem>
+                    {availableBalls.map((ball) => (
+                      <SelectItem key={ball.id} value={ball.id}>
+                        {ball.brand ? `${ball.brand} · ${ball.name}` : ball.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         ))}
 
@@ -222,7 +262,8 @@ interface MatchScoreEntryProps {
   league: League;
   existingScores: Score[];
   gameId: string;
-  onSave: (gameId: string, scores: { bowlerId: string; teamId: string; gameNumber: number; score: number }[]) => void;
+  availableBalls: Ball[];
+  onSave: (gameId: string, scores: { bowlerId: string; teamId: string; gameNumber: number; score: number; ballId: string | null }[]) => void;
   isSaving?: boolean;
 }
 
@@ -234,6 +275,7 @@ export function MatchScoreEntry({
   league,
   existingScores,
   gameId,
+  availableBalls,
   onSave,
   isSaving,
 }: MatchScoreEntryProps) {
@@ -263,6 +305,53 @@ export function MatchScoreEntry({
     return initial;
   });
 
+  const [team1BallIds, setTeam1BallIds] = useState<Record<string, (string | null)[]>>(() => {
+    const initial: Record<string, (string | null)[]> = {};
+    team1Bowlers.forEach((b) => {
+      initial[b.id] = Array.from({ length: league.gamesPerSession }).map((_, i) => {
+        const existing = existingScores.find(
+          (s) => s.bowlerId === b.id && s.gameNumber === i + 1
+        );
+        return existing?.ballId ?? null;
+      });
+    });
+    return initial;
+  });
+
+  const [team2BallIds, setTeam2BallIds] = useState<Record<string, (string | null)[]>>(() => {
+    const initial: Record<string, (string | null)[]> = {};
+    team2Bowlers.forEach((b) => {
+      initial[b.id] = Array.from({ length: league.gamesPerSession }).map((_, i) => {
+        const existing = existingScores.find(
+          (s) => s.bowlerId === b.id && s.gameNumber === i + 1
+        );
+        return existing?.ballId ?? null;
+      });
+    });
+    return initial;
+  });
+
+  useEffect(() => {
+    const allowedBallIds = new Set(availableBalls.map((ball) => ball.id));
+    const sanitize = (previous: Record<string, (string | null)[]>) => {
+      let changed = false;
+      const next = Object.fromEntries(
+        Object.entries(previous).map(([bowlerId, ballIds]) => {
+          const sanitized = ballIds.map((ballId) => {
+            const nextBallId = ballId && allowedBallIds.has(ballId) ? ballId : null;
+            if (nextBallId !== ballId) changed = true;
+            return nextBallId;
+          });
+          return [bowlerId, sanitized];
+        })
+      );
+      return changed ? next : previous;
+    };
+
+    setTeam1BallIds(sanitize);
+    setTeam2BallIds(sanitize);
+  }, [availableBalls]);
+
   const calculateHandicap = (average: number) => {
     if (!league.useHandicap) return 0;
     const diff = league.handicapBasis - average;
@@ -287,6 +376,20 @@ export function MatchScoreEntry({
   const team2Total = calculateTeamTotal(team2Bowlers, team2Scores);
 
   const allBowlerNames = [...team1Bowlers, ...team2Bowlers].map(b => b.name);
+
+  const handleBallChange = (
+    setBallIds: Dispatch<SetStateAction<Record<string, (string | null)[]>>>,
+    bowlerId: string,
+    gameIndex: number,
+    ballId: string | null,
+  ) => {
+    setBallIds((prev) => ({
+      ...prev,
+      [bowlerId]: (prev[bowlerId] || Array(league.gamesPerSession).fill(null)).map((current, i) => (
+        i === gameIndex ? ballId : current
+      )),
+    }));
+  };
 
   const handleScoresExtracted = (data: { scores: { bowlerName: string; game1?: number; game2?: number; game3?: number }[] }) => {
     data.scores.forEach(extracted => {
@@ -322,12 +425,18 @@ export function MatchScoreEntry({
   };
 
   const handleSave = () => {
-    const allScores: { bowlerId: string; teamId: string; gameNumber: number; score: number }[] = [];
+    const allScores: { bowlerId: string; teamId: string; gameNumber: number; score: number; ballId: string | null }[] = [];
     
     Object.entries(team1Scores).forEach(([bowlerId, games]) => {
       games.forEach((score, index) => {
         if (score > 0) {
-          allScores.push({ bowlerId, teamId: team1.id, gameNumber: index + 1, score });
+          allScores.push({
+            bowlerId,
+            teamId: team1.id,
+            gameNumber: index + 1,
+            score,
+            ballId: team1BallIds[bowlerId]?.[index] ?? null,
+          });
         }
       });
     });
@@ -335,7 +444,13 @@ export function MatchScoreEntry({
     Object.entries(team2Scores).forEach(([bowlerId, games]) => {
       games.forEach((score, index) => {
         if (score > 0) {
-          allScores.push({ bowlerId, teamId: team2.id, gameNumber: index + 1, score });
+          allScores.push({
+            bowlerId,
+            teamId: team2.id,
+            gameNumber: index + 1,
+            score,
+            ballId: team2BallIds[bowlerId]?.[index] ?? null,
+          });
         }
       });
     });
@@ -372,6 +487,11 @@ export function MatchScoreEntry({
                   }));
                 }}
                 league={league}
+                availableBalls={availableBalls}
+                ballIds={team1BallIds[bowler.id] || []}
+                onBallChange={(gameIndex, ballId) =>
+                  handleBallChange(setTeam1BallIds, bowler.id, gameIndex, ballId)
+                }
               />
             ))}
 
@@ -415,6 +535,11 @@ export function MatchScoreEntry({
                   }));
                 }}
                 league={league}
+                availableBalls={availableBalls}
+                ballIds={team2BallIds[bowler.id] || []}
+                onBallChange={(gameIndex, ballId) =>
+                  handleBallChange(setTeam2BallIds, bowler.id, gameIndex, ballId)
+                }
               />
             ))}
 

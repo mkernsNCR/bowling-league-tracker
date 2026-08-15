@@ -2,7 +2,7 @@ import { eq, and, desc, sql, like, or } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { db } from './index';
-import { leagues, teams, bowlers, games, scores, users } from './schema';
+import { leagues, teams, bowlers, balls, arsenals, arsenalBalls, games, scores, users } from './schema';
 import type { User } from './schema';
 import type { IStorage } from '../server/storage';
 import type {
@@ -12,6 +12,12 @@ import type {
   InsertTeam,
   Bowler,
   InsertBowler,
+  Ball,
+  InsertBall,
+  UpdateBall,
+  Arsenal,
+  InsertArsenal,
+  UpdateArsenal,
   Game,
   InsertGame,
   Score,
@@ -191,6 +197,115 @@ export class DbStorage implements IStorage {
     // Delete all scores for this bowler
     await db.delete(scores).where(eq(scores.bowlerId, id));
     const result = await db.delete(bowlers).where(eq(bowlers.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Bowling balls and arsenals
+  async getBalls(userId?: number): Promise<Ball[]> {
+    if (userId !== undefined) {
+      const result = await db.select().from(balls).where(eq(balls.userId, userId));
+      return result as Ball[];
+    }
+    const result = await db.select().from(balls);
+    return result as Ball[];
+  }
+
+  async getBall(id: string): Promise<Ball | undefined> {
+    const result = await db.select().from(balls).where(eq(balls.id, id)).limit(1);
+    return result[0] as Ball | undefined;
+  }
+
+  async createBall(ball: InsertBall, userId: number): Promise<Ball> {
+    const id = randomUUID();
+    const result = await db.insert(balls).values({ ...ball, id, userId }).returning();
+    return result[0] as Ball;
+  }
+
+  async updateBall(id: string, updates: UpdateBall): Promise<Ball | undefined> {
+    const result = await db
+      .update(balls)
+      .set(updates)
+      .where(eq(balls.id, id))
+      .returning();
+    return result[0] as Ball | undefined;
+  }
+
+  async deleteBall(id: string): Promise<boolean> {
+    await db.update(scores).set({ ballId: null }).where(eq(scores.ballId, id));
+    const result = await db.delete(balls).where(eq(balls.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getArsenals(userId?: number): Promise<Arsenal[]> {
+    const arsenalRows = userId !== undefined
+      ? await db.select().from(arsenals).where(eq(arsenals.userId, userId))
+      : await db.select().from(arsenals);
+    const links = await db.select().from(arsenalBalls);
+    const ballIdsByArsenal = new Map<string, string[]>();
+
+    for (const link of links) {
+      const ids = ballIdsByArsenal.get(link.arsenalId) || [];
+      ids.push(link.ballId);
+      ballIdsByArsenal.set(link.arsenalId, ids);
+    }
+
+    return arsenalRows.map((arsenal) => ({
+      ...arsenal,
+      ballIds: ballIdsByArsenal.get(arsenal.id) || [],
+    })) as Arsenal[];
+  }
+
+  async getArsenal(id: string): Promise<Arsenal | undefined> {
+    const result = await this.getArsenals();
+    return result.find((arsenal) => arsenal.id === id);
+  }
+
+  async createArsenal(arsenal: InsertArsenal, userId: number): Promise<Arsenal> {
+    const id = randomUUID();
+    const result = await db.insert(arsenals).values({
+      id,
+      userId,
+      name: arsenal.name,
+    }).returning();
+
+    const ownedBalls = await db.select({ id: balls.id }).from(balls).where(eq(balls.userId, userId));
+    const ownedBallIds = new Set(ownedBalls.map((ball) => ball.id));
+    const ballIds = arsenal.ballIds.filter((ballId) => ownedBallIds.has(ballId));
+    if (ballIds.length > 0) {
+      await db.insert(arsenalBalls).values(
+        ballIds.map((ballId) => ({ arsenalId: id, ballId }))
+      );
+    }
+
+    return { ...result[0], ballIds } as Arsenal;
+  }
+
+  async updateArsenal(id: string, updates: UpdateArsenal): Promise<Arsenal | undefined> {
+    const existing = await this.getArsenal(id);
+    if (!existing) return undefined;
+
+    if (updates.name !== undefined) {
+      await db.update(arsenals).set({ name: updates.name }).where(eq(arsenals.id, id));
+    }
+
+    if (updates.ballIds !== undefined) {
+      await db.delete(arsenalBalls).where(eq(arsenalBalls.arsenalId, id));
+      const ownedBalls = await db.select({ id: balls.id }).from(balls).where(eq(balls.userId, existing.userId));
+      const ownedBallIds = new Set(ownedBalls.map((ball) => ball.id));
+      const ballIds = updates.ballIds.filter((ballId) => ownedBallIds.has(ballId));
+      if (ballIds.length > 0) {
+        await db.insert(arsenalBalls).values(
+          ballIds.map((ballId) => ({ arsenalId: id, ballId }))
+        );
+      }
+    }
+
+    return this.getArsenal(id);
+  }
+
+  async deleteArsenal(id: string): Promise<boolean> {
+    await db.update(games).set({ arsenalId: null }).where(eq(games.arsenalId, id));
+    const result = await db.delete(arsenals).where(eq(arsenals.id, id)).returning();
     return result.length > 0;
   }
 

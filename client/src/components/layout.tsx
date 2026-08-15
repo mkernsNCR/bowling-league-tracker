@@ -6,6 +6,7 @@ import {
   Trophy, 
   Users, 
   Target,
+  CircleDot,
   Menu,
   X,
   ChevronRight
@@ -21,6 +22,7 @@ interface LayoutProps {
 
 const getNavItems = (leagueId?: string) => [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/arsenal", label: "Ball Arsenal", icon: CircleDot },
   { href: leagueId ? `/league/${leagueId}/standings` : "/standings", label: "Standings", icon: Trophy },
   { href: leagueId ? `/league/${leagueId}/teams` : "/teams", label: "Teams", icon: Users },
   { href: leagueId ? `/league/${leagueId}/scores` : "/scores", label: "Enter Scores", icon: Target },
@@ -57,7 +59,7 @@ export function Layout({ children, leagueName, leagueId }: LayoutProps) {
                   (item.href !== "/" && location.startsWith(item.href));
                 return (
                   <Link key={item.href} href={item.href}>
-                    <Button 
+                    <Button
                       variant={isActive ? "secondary" : "ghost"}
                       size="sm"
                       className="gap-2"
@@ -70,17 +72,30 @@ export function Layout({ children, leagueName, leagueId }: LayoutProps) {
                 );
               })}
               {!leagueId && (
-                <Link href="/">
-                  <Button 
-                    variant={location === "/" ? "secondary" : "ghost"}
-                    size="sm"
-                    className="gap-2"
-                    data-testid="nav-dashboard"
-                  >
-                    <LayoutDashboard className="w-4 h-4" />
-                    Dashboard
-                  </Button>
-                </Link>
+                <>
+                  <Link href="/">
+                    <Button
+                      variant={location === "/" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="gap-2"
+                      data-testid="nav-dashboard"
+                    >
+                      <LayoutDashboard className="w-4 h-4" />
+                      Dashboard
+                    </Button>
+                  </Link>
+                  <Link href="/arsenal">
+                    <Button
+                      variant={location === "/arsenal" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="gap-2"
+                      data-testid="nav-ball-arsenal"
+                    >
+                      <CircleDot className="w-4 h-4" />
+                      Ball Arsenal
+                    </Button>
+                  </Link>
+                </>
               )}
             </nav>
 
@@ -102,12 +117,12 @@ export function Layout({ children, leagueName, leagueId }: LayoutProps) {
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-border bg-background">
             <nav className="flex flex-col p-4 gap-2">
-              {(leagueId ? getNavItems(leagueId) : getNavItems().slice(0, 1)).map((item) => {
+              {(leagueId ? getNavItems(leagueId) : getNavItems().slice(0, 2)).map((item) => {
                 const isActive = location === item.href || 
                   (item.href !== "/" && location.startsWith(item.href));
                 return (
                   <Link key={item.href} href={item.href}>
-                    <Button 
+                    <Button
                       variant={isActive ? "secondary" : "ghost"}
                       className="w-full justify-start gap-2"
                       onClick={() => setMobileMenuOpen(false)}
@@ -137,7 +152,7 @@ export function PageHeader({
   action 
 }: { 
   title: string; 
-  description?: string;
+  description?: React.ReactNode;
   action?: React.ReactNode;
 }) {
   return (

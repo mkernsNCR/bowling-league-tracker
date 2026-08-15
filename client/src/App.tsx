@@ -15,6 +15,7 @@ import Standings from "@/pages/standings";
 import Scores from "@/pages/scores";
 import LeagueSettings from "@/pages/league-settings";
 import Login from "@/pages/login";
+import Arsenal from "@/pages/arsenal";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoutes() {
@@ -22,6 +23,7 @@ function ProtectedRoutes() {
     <ProtectedRoute>
       <Switch>
         <Route path="/" component={Dashboard} />
+        <Route path="/arsenal" component={Arsenal} />
         <Route path="/league/new" component={CreateLeague} />
         <Route path="/league/:id" component={LeagueDetail} />
         <Route path="/league/:id/teams" component={Teams} />

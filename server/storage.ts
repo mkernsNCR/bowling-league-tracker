@@ -8,6 +8,12 @@ import type {
   InsertTeam,
   Bowler,
   InsertBowler,
+  Ball,
+  InsertBall,
+  UpdateBall,
+  Arsenal,
+  InsertArsenal,
+  UpdateArsenal,
   Game,
   InsertGame,
   Score,
@@ -40,6 +46,18 @@ export interface IStorage {
   updateBowler(id: string, updates: Partial<Bowler>): Promise<Bowler | undefined>;
   deleteBowler(id: string): Promise<boolean>;
 
+  // Bowling balls and arsenals
+  getBalls(userId?: number): Promise<Ball[]>;
+  getBall(id: string): Promise<Ball | undefined>;
+  createBall(ball: InsertBall, userId: number): Promise<Ball>;
+  updateBall(id: string, updates: UpdateBall): Promise<Ball | undefined>;
+  deleteBall(id: string): Promise<boolean>;
+  getArsenals(userId?: number): Promise<Arsenal[]>;
+  getArsenal(id: string): Promise<Arsenal | undefined>;
+  createArsenal(arsenal: InsertArsenal, userId: number): Promise<Arsenal>;
+  updateArsenal(id: string, updates: UpdateArsenal): Promise<Arsenal | undefined>;
+  deleteArsenal(id: string): Promise<boolean>;
+
   // Games
   getGames(leagueId?: string): Promise<Game[]>;
   getGame(id: string): Promise<Game | undefined>;
@@ -69,6 +87,8 @@ export class MemStorage implements IStorage {
   private leagues: Map<string, League> = new Map();
   private teams: Map<string, Team> = new Map();
   private bowlers: Map<string, Bowler> = new Map();
+  private balls: Map<string, Ball> = new Map();
+  private arsenals: Map<string, Arsenal> = new Map();
   private games: Map<string, Game> = new Map();
   private scores: Map<string, Score> = new Map();
   private users: Map<number, User> = new Map();
@@ -213,6 +233,103 @@ export class MemStorage implements IStorage {
       this.scores.delete(score.id);
     }
     return this.bowlers.delete(id);
+  }
+
+  // Bowling balls and arsenals
+  async getBalls(userId?: number): Promise<Ball[]> {
+    const balls = Array.from(this.balls.values());
+    return userId === undefined ? balls : balls.filter((ball) => ball.userId === userId);
+  }
+
+  async getBall(id: string): Promise<Ball | undefined> {
+    return this.balls.get(id);
+  }
+
+  async createBall(ball: InsertBall, userId: number): Promise<Ball> {
+    const id = randomUUID();
+    const newBall: Ball = { ...ball, id, userId };
+    this.balls.set(id, newBall);
+    return newBall;
+  }
+
+  async updateBall(id: string, updates: UpdateBall): Promise<Ball | undefined> {
+    const ball = this.balls.get(id);
+    if (!ball) return undefined;
+    const updated = { ...ball, ...updates };
+    this.balls.set(id, updated);
+    return updated;
+  }
+
+  async deleteBall(id: string): Promise<boolean> {
+    const deleted = this.balls.delete(id);
+    if (!deleted) return false;
+
+    for (const [arsenalId, arsenal] of Array.from(this.arsenals.entries())) {
+      if (arsenal.ballIds.includes(id)) {
+        this.arsenals.set(arsenalId, {
+          ...arsenal,
+          ballIds: arsenal.ballIds.filter((ballId) => ballId !== id),
+        });
+      }
+    }
+
+    for (const [scoreId, score] of Array.from(this.scores.entries())) {
+      if (score.ballId === id) {
+        this.scores.set(scoreId, { ...score, ballId: null });
+      }
+    }
+
+    return true;
+  }
+
+  async getArsenals(userId?: number): Promise<Arsenal[]> {
+    const arsenals = Array.from(this.arsenals.values());
+    return userId === undefined ? arsenals : arsenals.filter((arsenal) => arsenal.userId === userId);
+  }
+
+  async getArsenal(id: string): Promise<Arsenal | undefined> {
+    return this.arsenals.get(id);
+  }
+
+  async createArsenal(arsenal: InsertArsenal, userId: number): Promise<Arsenal> {
+    const id = randomUUID();
+    const ownedBallIds = new Set((await this.getBalls(userId)).map((ball) => ball.id));
+    const newArsenal: Arsenal = {
+      ...arsenal,
+      id,
+      userId,
+      ballIds: arsenal.ballIds.filter((ballId) => ownedBallIds.has(ballId)),
+    };
+    this.arsenals.set(id, newArsenal);
+    return newArsenal;
+  }
+
+  async updateArsenal(id: string, updates: UpdateArsenal): Promise<Arsenal | undefined> {
+    const arsenal = this.arsenals.get(id);
+    if (!arsenal) return undefined;
+
+    let ballIds = arsenal.ballIds;
+    if (updates.ballIds) {
+      const ownedBallIds = new Set((await this.getBalls(arsenal.userId)).map((ball) => ball.id));
+      ballIds = updates.ballIds.filter((ballId) => ownedBallIds.has(ballId));
+    }
+
+    const updated: Arsenal = { ...arsenal, ...updates, ballIds };
+    this.arsenals.set(id, updated);
+    return updated;
+  }
+
+  async deleteArsenal(id: string): Promise<boolean> {
+    const deleted = this.arsenals.delete(id);
+    if (!deleted) return false;
+
+    for (const [gameId, game] of Array.from(this.games.entries())) {
+      if (game.arsenalId === id) {
+        this.games.set(gameId, { ...game, arsenalId: null });
+      }
+    }
+
+    return true;
   }
 
   // Games
