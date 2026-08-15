@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, integer, serial, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, boolean, integer, serial, timestamp, index, primaryKey } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Users table for authentication
@@ -93,6 +93,36 @@ export const bowlersRelations = relations(bowlers, ({ many, one }) => ({
   scores: many(scores),
 }));
 
+// Bowling ball inventory
+export const balls = pgTable('balls', {
+  id: text('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  brand: text('brand').notNull().default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('balls_user_id_idx').on(table.userId),
+}));
+
+// Named sets of balls that can be brought to a session
+export const arsenals = pgTable('arsenals', {
+  id: text('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('arsenals_user_id_idx').on(table.userId),
+}));
+
+export const arsenalBalls = pgTable('arsenal_balls', {
+  arsenalId: text('arsenal_id').notNull().references(() => arsenals.id, { onDelete: 'cascade' }),
+  ballId: text('ball_id').notNull().references(() => balls.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.arsenalId, table.ballId] }),
+  arsenalIdIdx: index('arsenal_balls_arsenal_id_idx').on(table.arsenalId),
+  ballIdIdx: index('arsenal_balls_ball_id_idx').on(table.ballId),
+}));
+
 // Games table
 export const games = pgTable('games', {
   id: text('id').primaryKey(),
@@ -100,6 +130,7 @@ export const games = pgTable('games', {
   week: integer('week').notNull(),
   team1Id: text('team1_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
   team2Id: text('team2_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  arsenalId: text('arsenal_id').references(() => arsenals.id, { onDelete: 'set null' }),
   completed: boolean('completed').notNull().default(false),
 }, (table) => ({
   leagueIdIdx: index('games_league_id_idx').on(table.leagueId),
@@ -132,6 +163,7 @@ export const scores = pgTable('scores', {
   teamId: text('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
   gameNumber: integer('game_number').notNull(),
   score: integer('score').notNull(),
+  ballId: text('ball_id').references(() => balls.id, { onDelete: 'set null' }),
 }, (table) => ({
   gameIdIdx: index('scores_game_id_idx').on(table.gameId),
   bowlerIdIdx: index('scores_bowler_id_idx').on(table.bowlerId),
@@ -161,6 +193,10 @@ export type Team = typeof teams.$inferSelect;
 export type NewTeam = typeof teams.$inferInsert;
 export type Bowler = typeof bowlers.$inferSelect;
 export type NewBowler = typeof bowlers.$inferInsert;
+export type Ball = typeof balls.$inferSelect;
+export type NewBall = typeof balls.$inferInsert;
+export type Arsenal = typeof arsenals.$inferSelect;
+export type NewArsenal = typeof arsenals.$inferInsert;
 export type Game = typeof games.$inferSelect;
 export type NewGame = typeof games.$inferInsert;
 export type Score = typeof scores.$inferSelect;

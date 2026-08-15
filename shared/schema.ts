@@ -57,6 +57,32 @@ export type InsertBowler = z.infer<typeof insertBowlerSchema>;
 export type UpdateBowler = z.infer<typeof updateBowlerSchema>;
 export type Bowler = z.infer<typeof bowlerSchema>;
 
+export const ballSchema = z.object({
+  id: z.string(),
+  userId: z.number(),
+  name: z.string().min(1, "Ball name is required"),
+  brand: z.string().max(80).default(""),
+});
+
+export const insertBallSchema = ballSchema.omit({ id: true, userId: true });
+export const updateBallSchema = insertBallSchema.partial();
+export type InsertBall = z.infer<typeof insertBallSchema>;
+export type UpdateBall = z.infer<typeof updateBallSchema>;
+export type Ball = z.infer<typeof ballSchema>;
+
+export const arsenalSchema = z.object({
+  id: z.string(),
+  userId: z.number(),
+  name: z.string().min(1, "Arsenal name is required"),
+  ballIds: z.array(z.string()),
+});
+
+export const insertArsenalSchema = arsenalSchema.omit({ id: true, userId: true });
+export const updateArsenalSchema = insertArsenalSchema.partial();
+export type InsertArsenal = z.infer<typeof insertArsenalSchema>;
+export type UpdateArsenal = z.infer<typeof updateArsenalSchema>;
+export type Arsenal = z.infer<typeof arsenalSchema>;
+
 export const gameSchema = z.object({
   id: z.string(),
   leagueId: z.string(),
@@ -64,6 +90,7 @@ export const gameSchema = z.object({
   team1Id: z.string(),
   team2Id: z.string(),
   completed: z.boolean(),
+  arsenalId: z.string().nullable().optional(),
 });
 
 export const insertGameSchema = gameSchema.omit({ id: true, completed: true });
@@ -79,6 +106,7 @@ export const scoreSchema = z.object({
   teamId: z.string(),
   gameNumber: z.number().min(1).max(5),
   score: z.number().min(0).max(300),
+  ballId: z.string().nullable().optional(),
 });
 
 export const insertScoreSchema = scoreSchema.omit({ id: true });

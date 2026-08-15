@@ -14,9 +14,9 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Target, Plus, Check, Users } from "lucide-react";
+import { Target, Plus, Check, Users, CircleDot, ExternalLink } from "lucide-react";
 import { useState } from "react";
-import type { League, Team, Bowler, Game, Score } from "@shared/schema";
+import type { Arsenal, Ball, League, Team, Bowler, Game, Score } from "@shared/schema";
 
 interface ScoresData {
   league: League;
@@ -24,6 +24,8 @@ interface ScoresData {
   bowlers: Bowler[];
   games: Game[];
   scores: Score[];
+  balls: Ball[];
+  arsenals: Arsenal[];
   currentWeek: number;
 }
 
@@ -43,7 +45,7 @@ export default function Scores() {
       scores 
     }: { 
       gameId: string; 
-      scores: { bowlerId: string; teamId: string; gameNumber: number; score: number }[] 
+      scores: { bowlerId: string; teamId: string; gameNumber: number; score: number; ballId: string | null }[]
     }) => {
       await apiRequest("POST", `/api/games/${gameId}/scores`, { scores });
     },
@@ -60,6 +62,22 @@ export default function Scores() {
       toast({
         title: "Error",
         description: "Failed to save scores. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateGameMutation = useMutation({
+    mutationFn: async ({ gameId, arsenalId }: { gameId: string; arsenalId: string | null }) => {
+      await apiRequest("PATCH", `/api/games/${gameId}`, { arsenalId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leagues", leagueId, "scores"] });
+    },
+    onError: () => {
+      toast({
+        title: "Could not update arsenal",
+        description: "The game was not changed. Please try again.",
         variant: "destructive",
       });
     },
@@ -103,6 +121,8 @@ export default function Scores() {
   const bowlers = data?.bowlers || [];
   const games = data?.games || [];
   const scores = data?.scores || [];
+  const balls = data?.balls || [];
+  const arsenals = data?.arsenals || [];
   const currentWeek = data?.currentWeek || 1;
 
   if (!league) {
@@ -213,16 +233,28 @@ export default function Scores() {
 
             return (
               <div key={game.id}>
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                   <h2 className="text-xl font-semibold">
                     {team1.name} vs {team2.name}
                   </h2>
-                  {game.completed && (
-                    <Badge variant="secondary" className="gap-1">
-                      <Check className="w-3 h-3" />
-                      Completed
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <ArsenalPicker
+                      gameId={game.id}
+                      selectedArsenalId={game.arsenalId ?? null}
+                      arsenals={arsenals}
+                      availableBallCount={game.arsenalId
+                        ? balls.filter((ball) => arsenals.find((arsenal) => arsenal.id === game.arsenalId)?.ballIds.includes(ball.id)).length
+                        : balls.length}
+                      onChange={(arsenalId) => updateGameMutation.mutate({ gameId: game.id, arsenalId })}
+                      isUpdating={updateGameMutation.isPending}
+                    />
+                    {game.completed && (
+                      <Badge variant="secondary" className="gap-1">
+                        <Check className="w-3 h-3" />
+                        Completed
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <MatchScoreEntry
                   team1={team1}
@@ -232,10 +264,13 @@ export default function Scores() {
                   league={league}
                   existingScores={gameScores}
                   gameId={game.id}
+                  availableBalls={game.arsenalId
+                    ? balls.filter((ball) => arsenals.find((arsenal) => arsenal.id === game.arsenalId)?.ballIds.includes(ball.id))
+                    : balls}
                   onSave={(gameId, newScores) => 
                     saveScoresMutation.mutate({ gameId, scores: newScores })
                   }
-                  isSaving={saveScoresMutation.isPending}
+                  isSaving={saveScoresMutation.isPending || updateGameMutation.isPending}
                 />
               </div>
             );
@@ -260,6 +295,58 @@ export default function Scores() {
         </div>
       )}
     </Layout>
+  );
+}
+
+function ArsenalPicker({
+  gameId,
+  selectedArsenalId,
+  arsenals,
+  availableBallCount,
+  onChange,
+  isUpdating,
+}: {
+  gameId: string;
+  selectedArsenalId: string | null;
+  arsenals: Arsenal[];
+  availableBallCount: number;
+  onChange: (arsenalId: string | null) => void;
+  isUpdating: boolean;
+}) {
+  const selectedArsenal = arsenals.find((arsenal) => arsenal.id === selectedArsenalId);
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-primary/25 bg-primary/[0.04] px-2.5 py-1.5">
+      <CircleDot className="w-4 h-4 text-primary shrink-0" />
+      <label htmlFor={`game-arsenal-${gameId}`} className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+        Arsenal
+      </label>
+      <Select
+        value={selectedArsenalId ?? "none"}
+        onValueChange={(value) => onChange(value === "none" ? null : value)}
+        disabled={isUpdating}
+      >
+        <SelectTrigger id={`game-arsenal-${gameId}`} className="h-8 w-[190px] border-0 bg-transparent px-1 text-sm focus:ring-0" data-testid={`select-game-arsenal-${gameId}`}>
+          <SelectValue placeholder="All owned balls" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">No arsenal · all owned balls</SelectItem>
+          {arsenals.map((arsenal) => (
+            <SelectItem key={arsenal.id} value={arsenal.id}>
+              {arsenal.name} · {arsenal.ballIds.length} balls
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Badge variant="outline" className="hidden md:inline-flex whitespace-nowrap">
+        {selectedArsenal ? `${availableBallCount} available` : `${availableBallCount} owned`}
+      </Badge>
+      {arsenals.length === 0 && (
+        <Link href="/arsenal" className="inline-flex items-center gap-1 text-xs text-primary hover:underline whitespace-nowrap">
+          Set up <ExternalLink className="w-3 h-3" />
+        </Link>
+      )}
+    </div>
   );
 }
 
